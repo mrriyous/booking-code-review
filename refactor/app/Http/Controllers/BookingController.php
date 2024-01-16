@@ -30,25 +30,29 @@ class BookingController extends Controller
     }
 
     /**
+     * Get bookings data
+     * 
      * @param Request $request
      * @return mixed
      */
     public function index(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
+        $response = [];
 
-            $response = $this->repository->getUsersJobs($user_id);
-
-        }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
+        if (!empty($request->user_id)) {
+            $response = $this->repository->getUsersJobs($request->user_id);
+        } else if (in_array($request->__authenticatedUser->user_type, [config('app.role_ids.admin_role_id'), config('app.role_ids.superadmin_role_id')])) {
             $response = $this->repository->getAll($request);
         }
 
+        // In addition of this function's code review
+        // The response of a function is recommended to be in the same type and form, seeing the getUsersJobs and getAll having different form of a response can make a confusion on the frontend's side to handle the response data
         return response($response);
     }
 
     /**
+     * Get detailed job data
+     * 
      * @param $id
      * @return mixed
      */
@@ -56,10 +60,19 @@ class BookingController extends Controller
     {
         $job = $this->repository->with('translatorJobRel.user')->find($id);
 
+        if (empty($job)) {
+            return response()->json([
+                'error' => true,
+                'error_message' => "Sorry, the job is no longer exist!"
+            ], 404);
+        }
+
         return response($job);
     }
 
     /**
+     * Create a job
+     * 
      * @param Request $request
      * @return mixed
      */
@@ -70,10 +83,11 @@ class BookingController extends Controller
         $response = $this->repository->store($request->__authenticatedUser, $data);
 
         return response($response);
-
     }
 
     /**
+     * update a job
+     * 
      * @param $id
      * @param Request $request
      * @return mixed
@@ -88,12 +102,13 @@ class BookingController extends Controller
     }
 
     /**
+     * Store job email
+     * 
      * @param Request $request
      * @return mixed
      */
     public function immediateJobEmail(Request $request)
     {
-        $adminSenderEmail = config('app.adminemail');
         $data = $request->all();
 
         $response = $this->repository->storeJobEmail($data);
@@ -107,16 +122,21 @@ class BookingController extends Controller
      */
     public function getHistory(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
-
-            $response = $this->repository->getUsersJobsHistory($user_id, $request);
-            return response($response);
+        // Share empty response as the required parameter is not exist
+        if (empty($request->user_id)) {
+            return response()->json([
+                'error' => true,
+                'jobs' => []
+            ]);
         }
 
-        return null;
+        $response = $this->repository->getUsersJobsHistory($request->user_id, $request);
+        return response($response);
     }
 
     /**
+     * Accept job
+     * 
      * @param Request $request
      * @return mixed
      */
@@ -130,12 +150,18 @@ class BookingController extends Controller
         return response($response);
     }
 
+    /**
+     * Accept job with id
+     *
+     * @param Request $request
+     * @return void
+     */
     public function acceptJobWithId(Request $request)
     {
-        $data = $request->get('job_id');
+        $jobId = $request->job_id;
         $user = $request->__authenticatedUser;
 
-        $response = $this->repository->acceptJobWithId($data, $user);
+        $response = $this->repository->acceptJobWithId($jobId, $user);
 
         return response($response);
     }
@@ -196,59 +222,31 @@ class BookingController extends Controller
     {
         $data = $request->all();
 
-        if (isset($data['distance']) && $data['distance'] != "") {
-            $distance = $data['distance'];
-        } else {
-            $distance = "";
-        }
-        if (isset($data['time']) && $data['time'] != "") {
-            $time = $data['time'];
-        } else {
-            $time = "";
-        }
-        if (isset($data['jobid']) && $data['jobid'] != "") {
-            $jobid = $data['jobid'];
-        }
+        $distance = $data['distance'] ?? '';
+        $time = $data['time'] ?? '';
+        $jobid = $data['jobid'] ?? '';
+        $session = $data['session_time'] ?? '';
 
-        if (isset($data['session_time']) && $data['session_time'] != "") {
-            $session = $data['session_time'];
-        } else {
-            $session = "";
-        }
-
+        $flagged = 'no';
         if ($data['flagged'] == 'true') {
-            if($data['admincomment'] == '') return "Please, add comment";
+            if ($data['admincomment'] == '') {
+                return "Please, add comment";
+            }
+
             $flagged = 'yes';
-        } else {
-            $flagged = 'no';
         }
         
-        if ($data['manually_handled'] == 'true') {
-            $manually_handled = 'yes';
-        } else {
-            $manually_handled = 'no';
-        }
+        $manually_handled = $data['manually_handled'] == 'true' ? 'yes' : 'no';
+        $by_admin = $data['by_admin'] == 'true' ? 'yes' : 'no';
 
-        if ($data['by_admin'] == 'true') {
-            $by_admin = 'yes';
-        } else {
-            $by_admin = 'no';
-        }
+        $admincomment = $data['admincomment'] ?? '';
 
-        if (isset($data['admincomment']) && $data['admincomment'] != "") {
-            $admincomment = $data['admincomment'];
-        } else {
-            $admincomment = "";
-        }
         if ($time || $distance) {
-
             $affectedRows = Distance::where('job_id', '=', $jobid)->update(array('distance' => $distance, 'time' => $time));
         }
 
         if ($admincomment || $session || $flagged || $manually_handled || $by_admin) {
-
             $affectedRows1 = Job::where('id', '=', $jobid)->update(array('admin_comments' => $admincomment, 'flagged' => $flagged, 'session_time' => $session, 'manually_handled' => $manually_handled, 'by_admin' => $by_admin));
-
         }
 
         return response('Record updated!');
